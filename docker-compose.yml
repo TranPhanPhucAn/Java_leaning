@@ -1,0 +1,18 @@
+services:
+  db_identity:
+    container_name: db_identity
+    image: mysql:latest
+    environment:
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./docker-utils:/docker-entrypoint-initdb.d
+      - ./db_identity:/var/lib/mysql
+    ports:
+      - 3306:${MYSQL_PORT}
+    restart: unless-stopped
+
+volumes:
+  db_identity: {}
