@@ -4,6 +4,7 @@ import com.nimbusds.jose.JOSEException;
 import com.phucan.identity_service.dto.request.ApiResponse;
 import com.phucan.identity_service.dto.request.AuthenticationRequest;
 import com.phucan.identity_service.dto.request.IntrospectRequest;
+import com.phucan.identity_service.dto.request.LogoutRequest;
 import com.phucan.identity_service.dto.response.AuthenticationResponse;
 import com.phucan.identity_service.dto.response.IntrospectResponse;
 import com.phucan.identity_service.service.AuthenticationService;
@@ -40,5 +41,15 @@ public class AuthenticationController {
         return ApiResponse.<IntrospectResponse>builder()
                 .result(result)
                 .build();
+    }
+
+    @PostMapping("/logout")
+    ApiResponse<String> logout(@RequestBody LogoutRequest request)
+            throws ParseException, JOSEException{
+        authenticationService.logout(request);
+        return ApiResponse.<String>builder()
+                .result("Logout success!")
+                .build();
+
     }
 }

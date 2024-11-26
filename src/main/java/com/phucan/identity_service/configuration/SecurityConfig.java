@@ -1,5 +1,6 @@
 package com.phucan.identity_service.configuration;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,10 +25,13 @@ import javax.crypto.spec.SecretKeySpec;
 @EnableMethodSecurity
 public class SecurityConfig {
     private final String[] PUBLIC_ENDPOINT = {"/users",
-    "/auth/token","/auth/introspect"};
+    "/auth/token","/auth/introspect", "/auth/logout"};
 
     @Value("${jwt.signerKey}")
     private String signerKey;
+
+    @Autowired
+    private CustomJwtDecoder customJwtDecoder;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
@@ -37,10 +41,9 @@ public class SecurityConfig {
 
         httpSecurity.oauth2ResourceServer(oath2 ->
                 oath2.jwt(jwtConfigurer ->
-                        jwtConfigurer.decoder(jwtDecoder())
+                        jwtConfigurer.decoder(customJwtDecoder)
                         .jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint(new JwtAuthenticationEntryPoint())
-
         );
 
         httpSecurity.csrf(AbstractHttpConfigurer::disable);
@@ -57,14 +60,14 @@ public class SecurityConfig {
         return jwtAuthenticationConverter;
     }
 
-    @Bean
-    JwtDecoder jwtDecoder(){
-        SecretKeySpec secretKeySpec = new SecretKeySpec(signerKey.getBytes(),"HS512");
-        return NimbusJwtDecoder
-                .withSecretKey(secretKeySpec)
-                .macAlgorithm(MacAlgorithm.HS512)
-                .build();
-    }
+//    @Bean
+//    JwtDecoder jwtDecoder(){
+//        SecretKeySpec secretKeySpec = new SecretKeySpec(signerKey.getBytes(),"HS512");
+//        return NimbusJwtDecoder
+//                .withSecretKey(secretKeySpec)
+//                .macAlgorithm(MacAlgorithm.HS512)
+//                .build();
+//    }
 
     @Bean
     PasswordEncoder passwordEncoder(){

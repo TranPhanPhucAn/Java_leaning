@@ -7,11 +7,14 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.phucan.identity_service.dto.request.AuthenticationRequest;
 import com.phucan.identity_service.dto.request.IntrospectRequest;
+import com.phucan.identity_service.dto.request.LogoutRequest;
 import com.phucan.identity_service.dto.response.AuthenticationResponse;
 import com.phucan.identity_service.dto.response.IntrospectResponse;
+import com.phucan.identity_service.entity.InvalidatedToken;
 import com.phucan.identity_service.entity.User;
 import com.phucan.identity_service.exception.AppException;
 import com.phucan.identity_service.exception.ErrorCode;
+import com.phucan.identity_service.repository.InvalidatedRepository;
 import com.phucan.identity_service.repository.UserRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +33,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.Date;
 import java.util.StringJoiner;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +41,7 @@ import java.util.StringJoiner;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class AuthenticationService {
     UserRepository userRepository;
+    InvalidatedRepository invalidatedRepository;
 
     @NonFinal
     @Value("${jwt.signerKey}")
@@ -71,6 +76,7 @@ public class AuthenticationService {
                 .expirationTime(new Date(
                         Instant.now().plus(1, ChronoUnit.HOURS).toEpochMilli()
                 ))
+                .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
                 .build();
 
@@ -91,15 +97,15 @@ public class AuthenticationService {
             throws JOSEException, ParseException {
         var token = request.getToken();
 
-        JWSVerifier verifier = new MACVerifier(SIGNER_KEY.getBytes());
-        SignedJWT signedJWT = SignedJWT.parse(token);
-
-        Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-
-        var verified = signedJWT.verify(verifier);
+        boolean isValid = true;
+        try {
+            verifyToken(token);
+        }catch (AppException e){
+            isValid = false;
+        }
 
         return IntrospectResponse.builder()
-                .valid(verified && expirationTime.after(new Date()))
+                .valid(isValid)
                 .build();
     }
 
@@ -115,5 +121,39 @@ public class AuthenticationService {
             });
         }
         return stringJoiner.toString();
+    }
+
+    public void logout(LogoutRequest request) throws ParseException, JOSEException {
+        var signToken = verifyToken(request.getToken());
+        String jit = signToken.getJWTClaimsSet().getJWTID();
+
+        Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
+
+        InvalidatedToken invalidatedToken = InvalidatedToken.builder()
+                .id(jit)
+                .expiryTime(expiryTime)
+                .build();
+
+        invalidatedRepository.save(invalidatedToken);
+    }
+
+    private SignedJWT verifyToken(String token) throws JOSEException, ParseException {
+        JWSVerifier verifier = new MACVerifier(SIGNER_KEY.getBytes());
+        SignedJWT signedJWT = SignedJWT.parse(token);
+
+        Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
+
+        var verified = signedJWT.verify(verifier);
+
+        if(!(verified && expirationTime.after(new Date()))){
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        if(invalidatedRepository.
+                existsById(signedJWT.getJWTClaimsSet().getJWTID())){
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        return signedJWT;
     }
 }
