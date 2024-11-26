@@ -1,10 +1,7 @@
 package com.phucan.identity_service.controller;
 
 import com.nimbusds.jose.JOSEException;
-import com.phucan.identity_service.dto.request.ApiResponse;
-import com.phucan.identity_service.dto.request.AuthenticationRequest;
-import com.phucan.identity_service.dto.request.IntrospectRequest;
-import com.phucan.identity_service.dto.request.LogoutRequest;
+import com.phucan.identity_service.dto.request.*;
 import com.phucan.identity_service.dto.response.AuthenticationResponse;
 import com.phucan.identity_service.dto.response.IntrospectResponse;
 import com.phucan.identity_service.service.AuthenticationService;
@@ -29,6 +26,15 @@ public class AuthenticationController {
     ApiResponse<AuthenticationResponse> authenticate(@RequestBody AuthenticationRequest request){
         var result = authenticationService.authenticate(request);
 
+        return ApiResponse.<AuthenticationResponse>builder()
+                .result(result)
+                .build();
+    }
+
+    @PostMapping("/refreshToken")
+    ApiResponse<AuthenticationResponse> refreshToken(@RequestBody RefreshTokenRequest request)
+            throws ParseException, JOSEException {
+        var result = authenticationService.refreshToken(request);
         return ApiResponse.<AuthenticationResponse>builder()
                 .result(result)
                 .build();

@@ -8,6 +8,7 @@ import com.nimbusds.jwt.SignedJWT;
 import com.phucan.identity_service.dto.request.AuthenticationRequest;
 import com.phucan.identity_service.dto.request.IntrospectRequest;
 import com.phucan.identity_service.dto.request.LogoutRequest;
+import com.phucan.identity_service.dto.request.RefreshTokenRequest;
 import com.phucan.identity_service.dto.response.AuthenticationResponse;
 import com.phucan.identity_service.dto.response.IntrospectResponse;
 import com.phucan.identity_service.entity.InvalidatedToken;
@@ -47,6 +48,14 @@ public class AuthenticationService {
     @Value("${jwt.signerKey}")
     protected String SIGNER_KEY;
 
+    @NonFinal
+    @Value("${jwt.valid-duration}")
+    protected long VALID_DURATION;
+
+    @NonFinal
+    @Value("${jwt.refreshable-duration}")
+    protected long REFRESHABLE_DURATION;
+
     public AuthenticationResponse authenticate(AuthenticationRequest request){
         var user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(()-> new AppException(ErrorCode.USER_NOT_EXISTED));
@@ -64,7 +73,6 @@ public class AuthenticationService {
                 .token(token)
                 .authenticated(true)
                 .build();
-
     }
     private String generate(User user){
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
@@ -74,7 +82,7 @@ public class AuthenticationService {
                 .issuer("phucan.com")
                 .issueTime(new Date())
                 .expirationTime(new Date(
-                        Instant.now().plus(1, ChronoUnit.HOURS).toEpochMilli()
+                        Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli()
                 ))
                 .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
@@ -99,7 +107,7 @@ public class AuthenticationService {
 
         boolean isValid = true;
         try {
-            verifyToken(token);
+            verifyToken(token, false);
         }catch (AppException e){
             isValid = false;
         }
@@ -124,24 +132,34 @@ public class AuthenticationService {
     }
 
     public void logout(LogoutRequest request) throws ParseException, JOSEException {
-        var signToken = verifyToken(request.getToken());
-        String jit = signToken.getJWTClaimsSet().getJWTID();
+        try{
+            var signToken = verifyToken(request.getToken(), true);
+            String jit = signToken.getJWTClaimsSet().getJWTID();
 
-        Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
+            Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
 
-        InvalidatedToken invalidatedToken = InvalidatedToken.builder()
-                .id(jit)
-                .expiryTime(expiryTime)
-                .build();
+            InvalidatedToken invalidatedToken = InvalidatedToken.builder()
+                    .id(jit)
+                    .expiryTime(expiryTime)
+                    .build();
 
-        invalidatedRepository.save(invalidatedToken);
+            invalidatedRepository.save(invalidatedToken);
+        }catch (AppException e){
+            log.info("Token already expired");
+        }
+
+
     }
 
-    private SignedJWT verifyToken(String token) throws JOSEException, ParseException {
+    private SignedJWT verifyToken(String token, boolean isRefresh) throws JOSEException, ParseException {
         JWSVerifier verifier = new MACVerifier(SIGNER_KEY.getBytes());
         SignedJWT signedJWT = SignedJWT.parse(token);
 
-        Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
+        Date expirationTime = (isRefresh) ?
+                new Date(signedJWT.getJWTClaimsSet().getIssueTime().toInstant()
+                        .plus(REFRESHABLE_DURATION, ChronoUnit.SECONDS).toEpochMilli())
+                :
+                signedJWT.getJWTClaimsSet().getExpirationTime();
 
         var verified = signedJWT.verify(verifier);
 
@@ -155,5 +173,30 @@ public class AuthenticationService {
         }
 
         return signedJWT;
+    }
+
+    public AuthenticationResponse refreshToken(RefreshTokenRequest request)
+            throws ParseException, JOSEException {
+        var signJwt = verifyToken(request.getToken(), true);
+        var jit = signJwt.getJWTClaimsSet().getJWTID();
+        var expiryTime = signJwt.getJWTClaimsSet().getExpirationTime();
+        InvalidatedToken invalidatedToken = InvalidatedToken.builder()
+                .id(jit)
+                .expiryTime(expiryTime)
+                .build();
+        invalidatedRepository.save(invalidatedToken);
+
+        var username =signJwt.getJWTClaimsSet().getSubject();
+
+        var user = userRepository.findByUsername(username).orElseThrow(
+                () -> new AppException(ErrorCode.UNAUTHENTICATED)
+        );
+
+        var token = generate(user);
+
+        return AuthenticationResponse.builder()
+                .token(token)
+                .authenticated(true)
+                .build();
     }
 }
